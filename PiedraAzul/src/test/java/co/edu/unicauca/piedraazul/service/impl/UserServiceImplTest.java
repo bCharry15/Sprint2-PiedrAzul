@@ -1,118 +1,140 @@
 package co.edu.unicauca.piedraazul.service.impl;
 
+import co.edu.unicauca.piedraazul.client.AgendaServiceClient;
 import co.edu.unicauca.piedraazul.model.User;
 import co.edu.unicauca.piedraazul.model.enums.UserRole;
 import co.edu.unicauca.piedraazul.model.enums.UserStatus;
 import co.edu.unicauca.piedraazul.observer.Observer;
-import co.edu.unicauca.piedraazul.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
-import java.util.Optional;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
+@DisplayName("Pruebas unitarias - UserServiceImpl")
 class UserServiceImplTest {
 
-    @Mock
-    private UserRepository userRepository;
-
-    @Mock
-    private BCryptPasswordEncoder passwordEncoder;
-
-    @Mock
-    private Observer observer;
-
-    @InjectMocks
     private UserServiceImpl userService;
-
     private User user;
+    private List<String> notificaciones;
+    private Observer testObserver;
+
+    // Fake (Stub) en lugar de Mockito para evitar el problema de Java 25 / InlineByteCode
+    private boolean simularExitoRegistro = true;
+    private boolean simularExitoLogin = true;
+    private boolean simularExcepcion = false;
 
     @BeforeEach
     void setUp() {
+        AgendaServiceClient fakeClient = new AgendaServiceClient() {
+            @Override
+            public void registrarUsuario(String username, String password, String role) {
+                if (simularExcepcion) {
+                    throw new RuntimeException("Error HTTP simulado");
+                }
+            }
+
+            @Override
+            public Map<String, String> login(String username, String password) {
+                if (simularExcepcion) {
+                    throw new RuntimeException("HTTP 401 Unauthorized");
+                }
+                if (!simularExitoLogin) {
+                    return null;
+                }
+                Map<String, String> map = new HashMap<>();
+                map.put("username", username);
+                map.put("role", "PACIENTE");
+                map.put("status", "ACTIVE");
+                return map;
+            }
+        };
+
+        userService = new UserServiceImpl(fakeClient);
+
         user = new User();
-        user.setUsername("julian");
-        user.setPassword("1234");
-        user.setRole(UserRole.ADMIN);
-        user.setStatus(UserStatus.ACTIVE);
+        user.setUsername("testuser");
+        user.setPassword("password123");
+        user.setRole(UserRole.PACIENTE);
+
+        notificaciones = new ArrayList<>();
+        testObserver = notificaciones::add;
     }
 
     @Test
-    void registerUserDebeGuardarUsuarioConPasswordEncriptada() {
-        when(userRepository.findByUsername("julian")).thenReturn(Optional.empty());
-        when(passwordEncoder.encode("1234")).thenReturn("hash123");
+    @DisplayName("registerUser: se registra correctamente e invoca el cliente Feign/HTTP")
+    void registerUser_exitoso_retornaTrue() {
+        boolean resultado = userService.registerUser(user);
+        assertTrue(resultado);
+    }
 
-        boolean resultado = userService.registerUser(user, observer);
+    @Test
+    @DisplayName("registerUser con Observer: añade el observer y registra")
+    void registerUser_conObserver_exitoso() {
+        boolean resultado = userService.registerUser(user, testObserver);
 
         assertTrue(resultado);
-        assertEquals("hash123", user.getPassword());
-        verify(userRepository).save(user);
-        verify(observer).update(contains("Nuevo usuario registrado"));
+        assertEquals(1, notificaciones.size());
+        assertTrue(notificaciones.get(0).contains("Usuario registrado"));
     }
 
     @Test
-    void registerUserDebeRetornarFalseSiUsuarioYaExiste() {
-        when(userRepository.findByUsername("julian")).thenReturn(Optional.of(new User()));
+    @DisplayName("registerUser: retorna false si el cliente lanza excepción")
+    void registerUser_fallido_retornaFalse() {
+        simularExcepcion = true;
+        userService.attach(testObserver);
 
-        boolean resultado = userService.registerUser(user, observer);
+        boolean resultado = userService.registerUser(user);
 
         assertFalse(resultado);
-        verify(userRepository, never()).save(any(User.class));
-        verify(observer).update(contains("ya existe"));
+        assertEquals(1, notificaciones.size());
+        assertTrue(notificaciones.get(0).contains("Registro fallido"));
     }
 
     @Test
-    void authenticateDebeRetornarUsuarioSiPasswordEsCorrecto() {
-        User guardado = new User();
-        guardado.setUsername("julian");
-        guardado.setPassword("hash123");
-        guardado.setRole(UserRole.ADMIN);
-        guardado.setStatus(UserStatus.ACTIVE);
+    @DisplayName("authenticate: retorna usuario correctamente formado si el login es exitoso")
+    void authenticate_exitoso_retornaUsuario() {
+        userService.attach(testObserver);
 
-        userService.attach(observer);
-        when(userRepository.findByUsername("julian")).thenReturn(Optional.of(guardado));
-        when(passwordEncoder.matches("1234", "hash123")).thenReturn(true);
+        User logueado = userService.authenticate("testuser", "password123");
 
-        User resultado = userService.authenticate("julian", "1234");
+        assertNotNull(logueado);
+        assertEquals("testuser", logueado.getUsername());
+        assertEquals(UserRole.PACIENTE, logueado.getRole());
+        assertEquals(UserStatus.ACTIVE, logueado.getStatus());
 
-        assertNotNull(resultado);
-        assertEquals("julian", resultado.getUsername());
-        verify(observer).update(contains("Login exitoso"));
+        assertEquals(1, notificaciones.size());
+        assertTrue(notificaciones.get(0).contains("Login exitoso"));
     }
 
     @Test
-    void authenticateDebeRetornarNullSiPasswordEsIncorrecto() {
-        User guardado = new User();
-        guardado.setUsername("julian");
-        guardado.setPassword("hash123");
+    @DisplayName("authenticate: retorna nulo si el cliente devuelve nulo")
+    void authenticate_nulo_retornaNull() {
+        simularExitoLogin = false;
+        userService.attach(testObserver);
 
-        userService.attach(observer);
-        when(userRepository.findByUsername("julian")).thenReturn(Optional.of(guardado));
-        when(passwordEncoder.matches("incorrecta", "hash123")).thenReturn(false);
+        User logueado = userService.authenticate("testuser", "wrongpassword");
 
-        User resultado = userService.authenticate("julian", "incorrecta");
-
-        assertNull(resultado);
-        verify(observer).update(contains("Login fallido"));
+        assertNull(logueado);
+        assertEquals(1, notificaciones.size());
+        assertTrue(notificaciones.get(0).contains("Login fallido"));
     }
 
     @Test
-    void authenticateDebeRetornarNullSiUsuarioNoExiste() {
-        userService.attach(observer);
-        when(userRepository.findByUsername("desconocido")).thenReturn(Optional.empty());
+    @DisplayName("authenticate: retorna nulo y notifica si el cliente lanza excepción (ej. HTTP 401)")
+    void authenticate_excepcion_retornaNull() {
+        simularExcepcion = true;
+        userService.attach(testObserver);
 
-        User resultado = userService.authenticate("desconocido", "1234");
+        User logueado = userService.authenticate("testuser", "wrongpassword");
 
-        assertNull(resultado);
-        verify(observer).update(contains("Login fallido"));
-        verify(passwordEncoder, never()).matches(any(), any());
+        assertNull(logueado);
+        assertEquals(1, notificaciones.size());
+        assertTrue(notificaciones.get(0).contains("Login fallido"));
     }
 }

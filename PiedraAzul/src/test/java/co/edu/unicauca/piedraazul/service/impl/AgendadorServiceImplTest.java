@@ -3,73 +3,83 @@ package co.edu.unicauca.piedraazul.service.impl;
 import co.edu.unicauca.piedraazul.model.User;
 import co.edu.unicauca.piedraazul.model.enums.UserRole;
 import co.edu.unicauca.piedraazul.model.enums.UserStatus;
-import co.edu.unicauca.piedraazul.repository.UserRepository;
+import co.edu.unicauca.piedraazul.service.IUserService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("Pruebas unitarias - AgendadorServiceImpl")
 class AgendadorServiceImplTest {
 
     @Mock
-    private UserRepository userRepository;
-
-    @Mock
-    private BCryptPasswordEncoder passwordEncoder;
+    private IUserService userService;
 
     @InjectMocks
     private AgendadorServiceImpl agendadorService;
 
-    @Test
-    void registrarAgendadorDebeFallarSiUsernameYaExiste() {
-        when(userRepository.findByUsername("agenda1")).thenReturn(Optional.of(new User()));
+    @BeforeEach
+    void setUp() {
+        // En este caso AgendadorServiceImpl tiene una lista interna en memoria
+        // así que se inicializa vacía con cada test.
+    }
 
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> agendadorService.registrarAgendador("agenda1", "123"));
+    @Test
+    @DisplayName("registrarAgendador: registra con rol AGENDADOR y devuelve usuario")
+    void registrarAgendador_exitoso_retornaUsuarioAgregadoALista() {
+        when(userService.registerUser(any(User.class))).thenReturn(true);
+
+        User agendador = agendadorService.registrarAgendador("juan.agendador", "secreto123");
+
+        assertNotNull(agendador);
+        assertEquals("juan.agendador", agendador.getUsername());
+        assertEquals("secreto123", agendador.getPassword());
+        assertEquals(UserRole.AGENDADOR, agendador.getRole());
+        assertEquals(UserStatus.ACTIVE, agendador.getStatus());
+
+        List<User> lista = agendadorService.listarAgendadores();
+        assertEquals(1, lista.size());
+        assertEquals(agendador, lista.get(0));
+
+        verify(userService, times(1)).registerUser(any(User.class));
+    }
+
+    @Test
+    @DisplayName("registrarAgendador: lanza excepción si UserService retorna false (ej. duplicado)")
+    void registrarAgendador_fallido_lanzaExcepcion() {
+        when(userService.registerUser(any(User.class))).thenReturn(false);
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> agendadorService.registrarAgendador("juan.agendador", "clave")
+        );
 
         assertTrue(ex.getMessage().contains("ya existe"));
-        verify(userRepository, never()).save(any(User.class));
+        assertTrue(agendadorService.listarAgendadores().isEmpty());
     }
 
     @Test
-    void registrarAgendadorDebeGuardarConRolYEstadoCorrecto() {
-        when(userRepository.findByUsername("agenda1")).thenReturn(Optional.empty());
-        when(passwordEncoder.encode("123")).thenReturn("hash123");
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    @DisplayName("listarAgendadores: retorna la lista interna")
+    void listarAgendadores_retornaListaCorrecta() {
+        when(userService.registerUser(any(User.class))).thenReturn(true);
 
-        User resultado = agendadorService.registrarAgendador("agenda1", "123");
+        agendadorService.registrarAgendador("agendador1", "123");
+        agendadorService.registrarAgendador("agendador2", "123");
 
-        assertNotNull(resultado);
-        assertEquals("agenda1", resultado.getUsername());
-        assertEquals("hash123", resultado.getPassword());
-        assertEquals(UserRole.AGENDADOR, resultado.getRole());
-        assertEquals(UserStatus.ACTIVE, resultado.getStatus());
-    }
+        List<User> lista = agendadorService.listarAgendadores();
 
-    @Test
-    void listarAgendadoresDebeFiltrarSoloRolAgendador() {
-        User a1 = new User();
-        a1.setRole(UserRole.AGENDADOR);
-        User a2 = new User();
-        a2.setRole(UserRole.ADMIN);
-        User a3 = new User();
-        a3.setRole(UserRole.AGENDADOR);
-
-        when(userRepository.findAll()).thenReturn(List.of(a1, a2, a3));
-
-        List<User> resultado = agendadorService.listarAgendadores();
-
-        assertEquals(2, resultado.size());
-        assertTrue(resultado.stream().allMatch(u -> u.getRole() == UserRole.AGENDADOR));
+        assertEquals(2, lista.size());
+        assertEquals("agendador1", lista.get(0).getUsername());
+        assertEquals("agendador2", lista.get(1).getUsername());
     }
 }
