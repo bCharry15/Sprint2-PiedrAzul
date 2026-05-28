@@ -127,6 +127,8 @@ Brayan Steven Charry Vela
 Sebastian Ruiz Segura
 Jhoiner Alberto Puentes Figueroa
 
+link video: https://youtu.be/N52hNW-kc1w?si=o_TyfiaMPjUfuAbi
+
 Curso
 
 Ingeniería de Software II
