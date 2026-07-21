@@ -1,3 +1,8 @@
+> [!NOTE]
+> Este repositorio corresponde a una etapa académica inicial del proyecto Piedra Azul.
+> La versión final y actualmente recomendada se encuentra en:
+> [Piedra Azul Medical Platform](https://github.com/bCharry15/piedra-azul-medical-platform)
+
 # Sistema Piedra Azul – Segundo Corte
 
 Sistema de agendamiento de citas médicas desarrollado para la asignatura Ingeniería de Software II.  
